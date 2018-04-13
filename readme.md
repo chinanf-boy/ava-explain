@@ -117,19 +117,19 @@ exports.run = () => {
 		Usage
 		  ava [<file|directory|glob> ...]
 
-		Options
-		  --watch, -w             Re-run tests when tests and source files change
-		  --match, -m             Only run tests with matching title (Can be repeated)
-		  --update-snapshots, -u  Update snapshots
-		  --fail-fast             Stop after first test failure
-		  --timeout, -T           Set global timeout
-		  --serial, -s            Run tests serially
-		  --concurrency, -c       Max number of test files running at the same time (Default: CPU cores)
-		  --verbose, -v           Enable verbose output
-		  --tap, -t               Generate TAP output
-		  --no-cache              Disable the compiler cache
-		  --color                 Force color output
-		  --no-color              Disable color output
+		Options 中文翻译选项
+		  --watch, -w             测试和源文件更改时重新运行测试
+		  --match, -m             只能运行匹配标题的测试（可重复）
+		  --update-snapshots, -u  更新快照
+		  --fail-fast             第一次测试失败后停止
+		  --timeout, -T           设置全局超时
+		  --serial, -s            连续运行测试
+		  --concurrency, -c       同时运行的测试文件的最大数量（默认值：CPU核心） 
+		  --verbose, -v           启用详细输出
+		  --tap, -t               生成TAP输出
+		  --no-cache              禁用编译器缓存
+		  --color                 强制色彩输出
+		  --no-color              禁用颜色输出
 
 		Examples
 		  ava
