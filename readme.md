@@ -221,7 +221,7 @@ exports.run = () => {
 	// 合并配置, 
 	Object.assign(conf, cli.flags);
 
-    const api = new Api({
+    const api = new Api({ 
 		failFast: conf.failFast,
 		failWithoutAssertions: conf.failWithoutAssertions !== false,
 		serial: conf.serial,
@@ -252,7 +252,58 @@ exports.run = () => {
 
 - 2.3 `Api 传入的值有什么东东`
 
+``` js
+		` --watch, -w            测试和源文件更改时重新运行测试
+		  --match, -m             只能运行匹配标题的测试（可重复）
+		  --update-snapshots, -u  更新快照
+		  --fail-fast             第一次测试失败后停止
+		  --timeout, -T           设置全局超时
+		  --serial, -s            串行测试
+		  --concurrency, -c       同时运行的测试文件的最大数量（默认值：CPU核心） 
+		  --verbose, -v           启用详细输出
+		  --tap, -t               生成TAP输出
+		  --no-cache              禁用编译器缓存
+		  --color                 强制色彩输出
+		  --no-color              禁用颜色输出`
 
+		{
+		failFast: conf.failFast,
+		failWithoutAssertions: conf.failWithoutAssertions !== false,
+		serial: conf.serial,
+		require: arrify(conf.require),
+		cacheEnabled: conf.cache,
+		compileEnhancements: conf.compileEnhancements !== false,
+		explicitTitles: conf.watch,
+		match: arrify(conf.match),
+		babelConfig: babelConfigHelper.validate(conf.babel),
+		resolveTestsFrom: cli.input.length === 0 ? projectDir : process.cwd(), // 测试目录
+		projectDir,
+		timeout: conf.timeout,
+		concurrency: conf.concurrency ? parseInt(conf.concurrency, 10) : 0,
+		updateSnapshots: conf.updateSnapshots, 
+		snapshotDir: conf.snapshotDir ? path.resolve(projectDir, conf.snapshotDir) : null,
+		color: conf.color,
+		workerArgv: cli.flags['--']
+		}
+		{
+		files：`文件和目录路径以及选择哪些文件AVA将运行测试的全局模式。只使用扩展名为.js的文件。带有下划线前缀的文件将被忽略。运行所选目录中的所有.js文件`
+		source：`文件，如果更改，会导致测试在手表模式下重新运行。有关详情，请参阅手表模式配方`
+		match：`在package.json配置中通常不是很有用，但相当于在CLI中指定--match`
+		failFast：`一旦测试失败，停止运行进一步的测试`
+		failWithoutAssertions：`如果为false，如果不运行断言，则不会使测试失败`
+		tap：`如果为true，则启用TAP记者`
+		snapshotDir：`指定存储快照文件的固定位置。如果您的快照在错误的位置结束，请使用此选项`
+		compileEnhancements：`如果为false，则禁用power-assert - 否则有助于提供更多描述性错误消息 - 并检测t.throws（）声明的不当使用`
+		require：`在测试运行之前需要额外的模块。模块在工作进程中是必需的`
+		babel：`测试文件特定的Babel选项。有关更多详情，请参阅我们的Babel配方`
+		}
+```
+
+> 其中较为疑惑的应该是 `updateSnapshots` 和  `workerArgv`
+
+[snapshots en 官方解释](https://github.com/avajs/ava#snapshot-testing)
+
+至于 [workerArgv 需要讲到单次测试子进程使用的选项](./main.md#workerargv)
 
 </details>
 
