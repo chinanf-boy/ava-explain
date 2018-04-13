@@ -6,13 +6,13 @@
 
 ### 1. 日志形式
 
-> ava 具有三种 输出日志方式, 也就是表现形式的不同
+> [ava 具有三种 输出日志方式](https://github.com/avajs/ava-docs/blob/master/zh_CN/readme.md#%E6%8A%A5%E5%91%8A%E5%99%A8), 也就是表现形式的不同
 
-1. `MiniReporter` - 默认
+- `MiniReporter` - 默认
 
-2. `TapReporter` - `-t`
+- `TapReporter` - `-t`
 
-3. `VerboseReporter` - `-v`
+- `VerboseReporter` - `-v`
 
 ---
 
@@ -30,15 +30,31 @@
 	}
 ```
 
+- [isCi](https://github.com/watson/is-ci)
+
+> 知道是否运行在自动化测试比如 travis.yml 之类的服务器中
+
 ---
 
 ### 2. 日志架子
 
+`ava/lib/cli.js `
+
+代码 167-169
+
 ``` js
-	const logger = new Logger(reporter); // 载入日志形式
+	const logger = new Logger(reporter);
+	 // 载入日志形式
+	logger.start();
 ```
 
-Logger 定义了, 比如开始, 重置, 完成等, 日志输出行为
+### 3. Logger
+
+> `Logger` 定义了, 比如开始, 重置, 完成等, 日志输出行为
+
+> 但归根结底, 最后运行的是 `reporter`中的 函数
+
+`ava/lib/logger.js`
 
 <details>
 

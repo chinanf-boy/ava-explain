@@ -307,6 +307,8 @@ exports.run = () => {
 
 </details>
 
+---
+
 ### 3. Api
 
 `ava/lib/api.js`
@@ -331,7 +333,7 @@ class Api extends EventEmitter {
 
 - 3.1 `EventEmitter`
 
-> 我们先说明 `on/emit `模式 
+> 我们先说明 `on/emit `模式 , 请先了解清楚后, 再继续
 
 > 如果你不太了解可以看看[nodejs.cn](http://nodejs.cn/api/events.html)或者关于[mitt- 小小实现的on/emit](https://github.com/chinanf-boy/explain-mitt)
 
@@ -341,7 +343,192 @@ class Api extends EventEmitter {
 
 </details>
  
+ ---
+
+
+### 4. cli-logger
+
+`ava/lib/cli.js`
+
+代码 156-169
+
+<details>
+
+让我们回到`ava/lib/cli.js`
+
+在我们保存好我们选项**conf**之后, 我们再一次决定测试数据-日志输出方式
+
+[请转到cli-logger.explain.md](./cli-logger.explain.md#1-日志形式)
+
+如果你对此还不想了解！ 😊
+
+> 其实不影响后面的重要逻辑的解释
+
+</details>
+
+---
+
+
+### 5. runStatus
+
+`ava/lib/cli.js`
+
+代码 171-178
+
+<details>
+
+> 运行测试-状态
+
+我们在 [4. cli-logger](#4-cli-logger) 有了 日志工具,
+
+但是我们要把 测试与日志工具拼接 `logger <-> runStatus`
+
+才能 错❌ 就是 输出错误,对✅ 就是 输出正确
+
+``` js
+	api.on('test-run', runStatus => {
+		reporter.api = runStatus;
+		runStatus.on('test', logger.test);
+		runStatus.on('error', logger.unhandledError);
+
+		runStatus.on('stdout', logger.stdout);
+		runStatus.on('stderr', logger.stderr);
+	});
+```
+
+- 5.1 runStatus
+
+> [请转到 runStatus.md](./runStatus.md)
+
+
+</details>
+
+---
+
+### 6-7. watch
+
+`ava/lib/cli.js`
+
+代码 180-209
+
+> 这小段是分 是否观察文件 不退出进程
+
+这一段很重要, 
+
+- 观察吧 导致 [6. Watcher 观察者](#6-watcher)的运行
+
+- 不观察吧 直接运行 [7. api-run](#7-api-run) 测试运行
+
+<details>
+
+``` js
+const files = cli.input.length ? cli.input : arrify(conf.files); // 测试-文件, 未打磨
+
+	if (conf.watch) {
+		try {
+			const watcher = new Watcher(logger, api, files, arrify(conf.sources));
+			watcher.observeStdin(process.stdin);
+		} catch (err) {
+			if (err.name === 'AvaError') {
+				// An AvaError may be thrown if `chokidar` is not installed. Log it nicely.
+				console.error(`  ${colors.error(figures.cross)} ${err.message}`);
+				logger.exit(1);
+			} else {
+				// Rethrow so it becomes an uncaught exception
+				throw err;
+			}
+		}
+	} else {
+		api.run(files)
+			.then(runStatus => {
+				logger.finish(runStatus);
+				logger.exit(runStatus.failCount > 0 || runStatus.rejectionCount > 0 || runStatus.exceptionCount > 0 ? 1 : 0);
+			})
+			.catch(err => {
+				// Don't swallow exceptions. Note that any expected error should already
+				// have been logged.
+				setImmediate(() => {
+					throw err;
+				});
+			});
+	}
+```
+
+</details>
+
+---
+
+### 6. Watcher
+
+`ava/lib/cli.js`
+
+代码 183-195
+
+<details>
+
+``` js
+		try {
+			const watcher = new Watcher(logger, api, files, arrify(conf.sources));
+			watcher.observeStdin(process.stdin);
+		} catch (err) {
+			if (err.name === 'AvaError') {
+				// An AvaError may be thrown if `chokidar` is not installed. Log it nicely.
+				console.error(`  ${colors.error(figures.cross)} ${err.message}`);
+				logger.exit(1);
+			} else {
+				// Rethrow so it becomes an uncaught exception
+				throw err;
+			}
+		}
+```
+
+- 6.1 watcher
+
+> [请转到 watcher.md](./watcher.md)
+
+
+</details>
+
+---
+
+### 7. api-run
+
+`ava/lib/cli.js`
+
+代码 197-208
+
+<details>
+
+``` js
+		api.run(files)
+			.then(runStatus => {
+				logger.finish(runStatus);
+				logger.exit(runStatus.failCount > 0 || runStatus.rejectionCount > 0 || runStatus.exceptionCount > 0 ? 1 : 0);
+			})
+			.catch(err => {
+				// Don't swallow exceptions. Note that any expected error should already
+				// have been logged.
+				setImmediate(() => {
+					throw err;
+				});
+			});
+```
+</details>
+
+- 7.1 api-run
+
+> [请转到 api-run.md](./api-run.md)
+
+---
+
+---
+
 ## 其他
+
+> 有关作者 那些 小kuku
+
+<details>
+
 
 ### resolveModules
 
@@ -375,3 +562,4 @@ function resolveModules(modules) {
 ### arrify
 
 >将值转换为数组 [->github](https://github.com/sindresorhus/arrify)
+</details>
