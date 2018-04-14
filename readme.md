@@ -381,11 +381,12 @@ class Api extends EventEmitter {
 
 我们在 [4. cli-logger](#4-cli-logger) 有了 日志工具,
 
-但是我们要把 测试与日志工具拼接 `logger <-> runStatus`
+但是我们要把 测试-状态与日志工具拼接 `logger <-> runStatus`
 
 才能 错❌ 就是 输出错误,对✅ 就是 输出正确
 
 ``` js
+// 定义 触发 test-run 函数
 	api.on('test-run', runStatus => {
 		reporter.api = runStatus;
 		runStatus.on('test', logger.test);
@@ -466,6 +467,8 @@ const files = cli.input.length ? cli.input : arrify(conf.files); // 测试-文�
 
 <details>
 
+也许你可以先看 [7. api-run 了解一次运行情况再来看 Watcher噢😯](#7-api-run)
+
 ``` js
 		try {
 			const watcher = new Watcher(logger, api, files, arrify(conf.sources));
@@ -520,6 +523,21 @@ const files = cli.input.length ? cli.input : arrify(conf.files); // 测试-文�
 > [请转到 api-run.md](./api-run.md)
 
 ---
+
+
+## 8 总结
+
+无可否认, 软件经过解释, 似乎失去了一整个的使用和方便.
+
+正如一个苹果🍎, 作为苹果研究的人眼里👀, 可不仅仅是吃的东西
+
+我们也是, 软件使用, 让我们方便, 但我们仍需要知道每一段, 每一个字符串
+
+的代码是如何运作的, 因为我们是`Coder`!
+
+最后我们来描绘一下 ava 运作流程
+
+// 未完成
 
 ---
 
