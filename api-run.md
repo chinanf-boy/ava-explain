@@ -12,6 +12,7 @@
 			.catch(err => {
 				// Don't swallow exceptions. Note that any expected error should already
 				// have been logged.
+				// 不要错过例外。 请注意，任何预期的错误应该已经已记录。
 				setImmediate(() => {
 					throw err;
 				});
@@ -304,9 +305,11 @@ run(files, runtimeOptions) {
 	}
 ```
 
-- 1.6 `this._computeForkExecArgv`
+- 1.6 [this._computeForkExecArgv](#_computeforkexecargv)
 
-> 
+> 管理好子进程`child_process.fork(modulePath[, args][, options])`, 要传给执行路径的字符串参数列表 `options.execArgv`
+
+> 如果是调试, 加上可用的port值
 
 - 1.7 `forked = fork(file, options, execArgv);`
 
@@ -328,9 +331,13 @@ run(files, runtimeOptions) {
 
 ### _setupPrecompiler
 
+> 
+
+在 [`ava/lib/cli.js`](./readme.md#2.1-new-api)的时候, 提供了全部的默认/用户定义的选项来, `new Api(optioins)`
 
 ``` js
 	_setupPrecompiler() {
+		// 是否缓存编译
 		const cacheDir = this.options.cacheEnabled === false ?
 			uniqueTempDir() :
 			path.join(this.options.projectDir, 'node_modules', '.cache', 'ava');
@@ -351,28 +358,67 @@ run(files, runtimeOptions) {
 
 - [`this._buildBabelConfig`](#_buildbabelconfig)
 
+> 验证和管理好babel配置, 返回缓存结果
 
+- [CachingPrecompiler](#cachingprecompiler)
 
+> 缓存好预编译且提供接口
 
 ### _buildBabelConfig
 
 ``` js
 	_buildBabelConfig(cacheDir) {
+		// 哦, 已经有了返回
 		if (this._babelConfigPromise) {
 			return this._babelConfigPromise;
 		}
 
+		// 是否禁用-输出更多错误信息
 		const compileEnhancements = this.options.compileEnhancements !== false;
-		const promise = babelConfigHelper.build(this.options.projectDir, cacheDir, this.options.babelConfig, compileEnhancements);
-		this._babelConfigPromise = promise;
+		const promise = babelConfigHelper.build(this.options.projectDir, cacheDir, this.options.babelConfig, compileEnhancements);// 构建
+
+		this._babelConfigPromise = promise; // 保存下
 		return promise;
 	}
 
 ```
 
-- [babelConfigHelper](./babel-config.md)
+- [babelConfigHelper.build](./babel-config.md#2-build)
+
+> 带着 `babelConfigHelper.build(项目目录, 缓存目录, 用户定义babel, 错误信息不输出) - 返回一个 `Promise类型`
+
+``` js
+`ava/lib/babel-config.js 定义babelConfigHelper.build`
+			return {
+				getOptions() {
+					return getOptions(envName, cache);
+				},
+				// Include the seed in the cache keys used to store compilation results.
+				//将种子包含在用于存储编译结果的缓存键中。
+				cacheKeys: Object.assign({seed}, cacheKeys)
+			}; 
+`ava/api.js 返回 promise`
+			const promise = babelConfigHelper.build(this.options.projectDir, cacheDir, this.options.babelConfig, compileEnhancements);// 构建
+			// --> promise.then(
+				{
+				getOptions() {
+					return getOptions(envName, cache);
+				},
+				cacheKeys: Object.assign({seed}, cacheKeys)
+				
+			} => {}
+			)
+
+```
+
+### CachingPrecompiler
+
+> 正在缓存预编译 [-> caching-precompiler.js](./caching-precompiler.md)
 
 ### _computeForkExecArgv
+
+> 如果是调试子进程, 
+把 node 调试参数 像 `--debug` 加上 一个可用的port
 
 ``` js
 	_computeForkExecArgv() {
@@ -384,6 +430,7 @@ run(files, runtimeOptions) {
 		let debugArgIndex = -1;
 
 		// --inspect-brk is used in addition to --inspect to break on first line and wait
+		// --inspect-brk 用于 除了用于检查第一行并等待
 		execArgv.some((arg, index) => {
 			const isDebugArg = /^--inspect(-brk)?($|=)/.test(arg);
 			if (isDebugArg) {
@@ -394,7 +441,10 @@ run(files, runtimeOptions) {
 		});
 
 		const isInspect = debugArgIndex >= 0;
-		if (!isInspect) {
+		if (!isInspect) { 
+			// 找不到 --inspect|--inspect-brk 停在第一行
+			// 找 --debug|--debug-brk 
+			
 			execArgv.some((arg, index) => {
 				const isDebugArg = /^--debug(-brk)?($|=)/.test(arg);
 				if (isDebugArg) {
@@ -405,10 +455,11 @@ run(files, runtimeOptions) {
 			});
 		}
 
-		if (debugArgIndex === -1) {
+		if (debugArgIndex === -1) { // 还是没有
+		// 	直接返回
 			return Promise.resolve(execArgv);
 		}
-
+		// 到这里, 就是有需要调试的 execArgs
 		return getPort().then(port => {
 			const forkExecArgv = execArgv.slice();
 			let flagName = isInspect ? '--inspect' : '--debug';
@@ -418,10 +469,14 @@ run(files, runtimeOptions) {
 			}
 
 			forkExecArgv[debugArgIndex] = `${flagName}=${port}`;
-
+			// 把 调试值加上 =port
 			return forkExecArgv;
 		});
 	}
 }
 
 ```
+
+- `getPort`
+
+> 获取可用端口

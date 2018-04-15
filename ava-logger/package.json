@@ -1,0 +1,16 @@
+{
+  "name": "ava-logger",
+  "version": "1.0.0",
+  "description": "try ava logger js",
+  "main": "try.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "auto-bind": "^1.2.0",
+    "strip-ansi": "^4.0.0",
+    "supertap": "^1.0.0"
+  }
+}
