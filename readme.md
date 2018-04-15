@@ -242,13 +242,13 @@ exports.run = () => {
 	})
 ```
 
-- 2.1 `new Api`
+#### 2.1 new Api
 
-> [作为测试-总开关 ](#3-api)
+> [作为测试-总开关 初始化 3. api](#3-api)
 
-- 2.2 [`babelConfigHelper`](./babel-config.md)
+- 2.2 [`babelConfigHelper.validate`](./babel-config.md#1-validate)
 
-> 归纳-babel 的 配置
+> 归纳 babel 的 配置, 把[babelConfigHelper 放到 babel-config.md 解释](./babel-config.md)
 
 - 2.3 `Api 传入的值有什么东东`
 
@@ -267,6 +267,7 @@ exports.run = () => {
 		  --no-color              禁用颜色输出`
 
 		{
+			// package.json 里面定义的选项
 		failFast: conf.failFast,
 		failWithoutAssertions: conf.failWithoutAssertions !== false,
 		serial: conf.serial,
@@ -315,7 +316,7 @@ exports.run = () => {
 
 代码 34-40
 
-> 
+> 用整理的选项-初始化测试总开关
 
 <details>
 
