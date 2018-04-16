@@ -2,7 +2,7 @@
 
 在这里
 
-1. 集合配置, 开子进程-`ps`
+1. 集合配置, 开子进程-`ps` -> `test-worker.js`
 
 2. 定义 on 模式 「因为`父-api`与`子进程-fork`也是要通信才能知道状态」
 
@@ -52,7 +52,9 @@ module.exports = (file, opts, execArgv) => {
 		if (!exiting) {
 			// This seems to trigger a Node bug which kills the AVA master process, at
 			// least while running AVA's tests. See
-			// <https://github.com/novemberborn/_ava-tap-crash> for more details.
+//这似乎触发了杀死AVA主进程的Node错误，at
+//最少运行AVA的测试。
+			// 看 <https://github.com/novemberborn/_ava-tap-crash> 更多信息.
 			ps.send({
 				name: `ava-${name}`,
 				data,
@@ -69,6 +71,7 @@ module.exports = (file, opts, execArgv) => {
 		ps.on('error', reject);
 
 		// Emit `test` and `stats` events
+		// 发出`test`和`stats`事件, 绑在子进程上
 		ps.on('message', event => {
 			if (!event.ava) {
 				return;
@@ -121,12 +124,14 @@ module.exports = (file, opts, execArgv) => {
     });
         
 	// Teardown finished, now exit
+	// 拆解完毕，现在退出
 	ps.on('teardown', () => {
 		send('exit');
 		exiting = true;
 	});
 
 	// Uncaught exception in fork, need to exit
+	// 在fork中未捕获异常，需要退出
 	ps.on('uncaughtException', () => {
 		send('teardown');
 	});
@@ -139,6 +144,7 @@ module.exports = (file, opts, execArgv) => {
 		ps.emit('stderr', data);
 	});
 
+	// 给 子进程 定义触发事件
 	promise.on = function () {
 		ps.on.apply(ps, arguments);
 		return promise;
@@ -158,7 +164,33 @@ module.exports = (file, opts, execArgv) => {
 };
 ```
 
+- 1.1 [test-worker.js](./test-worker.md)
 
-- `promise.notifyOfPeerFailure`
+> 进入了, _test-worker.js_ 说明白的就已经时`另外一个进程`
 
-> 打断子进程运行
+> 与 `ava/api.js 测试总开关` 的关联, 也就剩下 父子进程的信息传递事件
+
+
+``` js
+// args === > node index.js -d { args = -d }
+
+// 👇下面这些是给 node 本身的配置, 比如 execArgv 有 --debug
+		// {
+		// cwd: opts.projectDir,
+		// silent: true,
+		// env,
+		// execArgv: execArgv || process.execArgv
+	// }
+const ps = childProcess.fork(path.join(__dirname, 'test-worker.js'), args, {
+		cwd: opts.projectDir,
+		silent: true,
+		env,
+		execArgv: execArgv || process.execArgv
+	});
+```
+
+> [->nodejs.cn 中文解释](http://nodejs.cn/api/child_process.html#child_process_child_process_fork_modulepath_args_options)
+
+- 1.2 [promise.notifyOfPeerFailure](./failFast.md#1-notifyofpeerfailure)
+
+> 打断子进程运行, 你可以浅浅得看看 notifyofpeerfailure 运行过程, 但要看全, 需要知道[test-worker.js](./test-worker.md)
