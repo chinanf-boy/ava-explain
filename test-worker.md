@@ -129,6 +129,10 @@ function exit() {
 
 ```
 
+### 2.5 setRunner
+
+> 从 runner.js 获得🉐️ runner
+
 ``` js
 exports.setRunner = newRunner => {
 	runner = newRunner;
