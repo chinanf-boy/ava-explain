@@ -167,8 +167,45 @@ module.exports = Logger;
 
 ---
 
+至于 三种报告的解释, 就放着吧
+
 ### MiniReporter
+
+> 默认
+
+https://github.com/avajs/ava/blob/master/lib/reporters/mini.js
+
+<details>
+
+``` js
+
+```
+
+
+</details>
 
 ### TapReporter
 
+https://github.com/avajs/ava/blob/master/lib/reporters/tap.js
+
+<details>
+
+``` js
+
+```
+
+
+</details>
+
 ### VerboseReporter
+
+https://github.com/avajs/ava/blob/master/lib/reporters/verbose.js
+
+<details>
+
+``` js
+
+```
+
+
+</details>
