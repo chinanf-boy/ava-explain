@@ -104,6 +104,10 @@ run(files, runtimeOptions) {
 
 > 打断子进程运行
 
+#### RunStatus
+
+> 真正运行时候,下面 [-> explain-runStatus](./runstatus.md)
+
 ``` js
         // 还在 run() 函数内
 		// Find all test files. 找到所有测试文件s.

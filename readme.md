@@ -398,9 +398,9 @@ class Api extends EventEmitter {
 	});
 ```
 
-- 5.1 runStatus
+- 5.1 `runStatus`
 
-> [请转到 runStatus.md](./runStatus.md)
+> 其实这里还没有使用 - [runStatus 使用在 api.run 中](./api-run#runstatus)
 
 
 </details>
