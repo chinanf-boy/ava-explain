@@ -145,6 +145,8 @@ exports.setRunner = newRunner => {
 		}
 	});
 	runner.on('start', started => {
+// adapter.send
+// 都是 向父进程 传递 信息
 		adapter.send('stats', {
 			testCount: started.stats.testCount,
 			hasExclusive: started.stats.hasExclusive
@@ -206,6 +208,7 @@ exports.setRunner = newRunner => {
 			type: result.metadata.type
 		});
 	});
+	// 定义好 
 };
 
 function attributeLeakedError(err) {
@@ -265,7 +268,7 @@ process.on('ava-teardown', () => {
 
     // Reference the IPC channel so the teardown sequence can be completed.
     // 参考IPC通道，以便完成拆卸序列。
-	adapter.forceRefChannel();
+	adapter.forceRefChannel(); 
 
 	let rejections = currentlyUnhandled()
 		.filter(rejection => !attributedRejections.has(rejection.promise));
@@ -324,6 +327,18 @@ adapter.installDependencyTracking(dependencies, testPath);
 adapter.installSourceMapSupport();
 adapter.installPrecompilerHook();
 ```
+
+- `adapter.forceRefChannel`
+
+``` js
+// process-adapter.js
+exports.forceRefChannel = () => {
+	allowUnref = false;
+	ipcChannel.ref();
+};
+```
+
+> 你可以试试 `node child_process/parent.js` 关于 `unref 与 ref `函数作用
 
 </details>
 
@@ -462,6 +477,156 @@ runner.chain('add', t =>{
 })
 ```
 
+- 4.4 `import test from 'ava'` 
+
+> 试试 `node use-import/index.js` 是失败的❌, 明明差不多的代码导出, 由此可以其实是[`babel`](./babel-config.md)的作用
+
 ### adapter
+
+`ava/lib/process-adapter.js`
+
+- 1. 定义子进程与父进程的联系 send/on
+
+- 2. 获得从 `process.argv[2]` 获得 父进程传入子进程的 `args`, 并保存公共存储`worker-options`中 
+    
+        `const ps = childProcess.fork(path.join(__dirname, 'test-worker.js'), args, {})`
+
+- 3. 给出接口和工具函数[ 下面会讲到 ->adapter](#adapter)
+
+<details>
+
+``` js
+
+// Parse and re-emit AVA messages
+// 接受来自父进程的触发
+process.on('message', message => {
+	if (!message.ava) {
+		return;
+	}
+
+	process.emit(message.name, message.data);
+});
+
+exports.send = (name, data) => {
+	process.send({
+		name: `ava-${name}`,
+		data,
+		ava: true
+	});
+};
+
+// `process.channel` was added in Node.js 7.1.0, but the channel was available
+// through an undocumented API as `process._channel`.
+//在Node.js 7.1.0中添加了“process.channel”，但通道可用
+//通过一个未公开的API作为`process._channel`。
+
+// process.channel属性保存IPC channel的引用。
+const ipcChannel = process.channel || process._channel;
+let allowUnref = true;
+exports.unrefChannel = () => {
+	if (allowUnref) {
+		ipcChannel.unref();
+	}
+};
+exports.forceRefChannel = () => {
+	allowUnref = false;
+	ipcChannel.ref();
+};
+
+const opts = JSON.parse(process.argv[2]); // 隶属 子进程
+// 记得 child_process.fork(modulePath[, args][, options]) - 的 - args 吗
+// args = 我们把 单次运行的测试文件-状态 放入了
+// opts === args
+
+require('./worker-options').set(opts); // 作为 子进程的 共有存储 -
+// 模块在第一次加载后会被缓存。 这也意味着（类似其他缓存机制）如果每次调用 require('worker-options') 都解析到同一文件，则返回相同的对象。
+
+// Remove arguments received from fork.js and leave those specified by the user.
+process.argv.splice(2, 2);
+
+// Fake TTY support
+//假TTY支持
+if (opts.tty) {
+	process.stdout.isTTY = true;
+	process.stdout.columns = opts.tty.columns || 80;
+	process.stdout.rows = opts.tty.rows;
+
+	const tty = require('tty');
+	const isatty = tty.isatty;
+
+	tty.isatty = function (fd) {
+		if (fd === 1 || fd === process.stdout) {
+			return true;
+		}
+
+		return isatty(fd);
+	};
+}
+
+if (debug.enabled) {
+	// Forward the `@ladjs/time-require` `--sorted` flag.
+	// Intended for internal optimization tests only.
+//转发`@ ladjs / time-require`` --sorted`标志。
+//仅用于内部优化测试。
+	if (opts._sorted) {
+		process.argv.push('--sorted');
+	}
+
+	require('@ladjs/time-require'); // eslint-disable-line import/no-unassigned-import
+}
+
+const sourceMapCache = new Map();
+const cacheDir = opts.cacheDir;
+
+exports.installSourceMapSupport = () => {
+	sourceMapSupport.install({
+		environment: 'node',
+		handleUncaughtExceptions: false,
+		retrieveSourceMap(source) {
+			if (sourceMapCache.has(source)) {
+				return {
+					url: source,
+					map: fs.readFileSync(sourceMapCache.get(source), 'utf8')
+				};
+			}
+		}
+	});
+};
+
+exports.installPrecompilerHook = () => {
+	// 需要允许进行缓存/预编译的扩展
+	// https://github.com/avajs/require-precompiled
+	installPrecompiler(filename => {
+		const precompiled = opts.precompiled[filename];
+
+		if (precompiled) {
+			sourceMapCache.set(filename, path.join(cacheDir, `${precompiled}.js.map`));
+			return fs.readFileSync(path.join(cacheDir, `${precompiled}.js`), 'utf8');
+		}
+
+		return null;
+	});
+};
+
+/* eslint-disable node/no-deprecated-api */
+exports.installDependencyTracking = (dependencies, testPath) => {
+	Object.keys(require.extensions).forEach(ext => {
+		const wrappedHandler = require.extensions[ext];
+
+		require.extensions[ext] = (module, filename) => {
+			if (filename !== testPath) {
+				dependencies.add(filename);
+			}
+
+			wrappedHandler(module, filename);
+		};
+	});
+};
+/* eslint-enable node/no-deprecated-api */
+
+```
+
+
+</details>
 
 #### 
