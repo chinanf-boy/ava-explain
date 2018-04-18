@@ -290,13 +290,340 @@ function createChain(fn, defaults) {
 
 ---
 
-#### 总结
+#### 初始化小结
 
 > 我们返回的 `root` 是一个函数 _塔_ 
 
 真相就是 只需要一个[`运行函数`](#运行函数), 而每一层不同的只有传入 `运行函数的 args`
 
 > 如果你看完了 ,那么我们回去 [`ava/lib/main.js` -> `worker.setRunner(runner);`](./test-worker.md#2.5-setrunner)
+
+---
+
+### 3. 测试
+
+代码 167-473
+
+<details>
+
+``` js
+// Runner 的 函数
+	compareTestSnapshot(options) {
+		if (!this.snapshots) {
+			this.snapshots = snapshotManager.load({
+				file: this.file,
+				fixedLocation: this.snapshotDir,
+				name: path.basename(this.file),
+				projectDir: this.projectDir,
+				relFile: path.relative(this.projectDir, this.file),
+				testDir: path.dirname(this.file),
+				updating: this.updateSnapshots
+			});
+			this.emit('dependency', this.snapshots.snapPath);
+		}
+
+		return this.snapshots.compare(options);
+	}
+
+	saveSnapshotState() {
+		if (this.snapshots) {
+			const files = this.snapshots.save();
+			if (files) {
+				this.emit('touched', files);
+			}
+		} else if (this.updateSnapshots) {
+			// TODO: There may be unused snapshot files if no test caused the
+			// snapshots to be loaded. Prune them. But not if tests (including hooks!)
+			// were skipped. Perhaps emit a warning if this occurs?
+		}
+	}
+
+	onRun(runnable) {
+		this.activeRunnables.add(runnable);
+	}
+
+	onRunComplete(runnable) {
+		this.activeRunnables.delete(runnable);
+	}
+
+	attributeLeakedError(err) {
+		for (const runnable of this.activeRunnables) {
+			if (runnable.attributeLeakedError(err)) {
+				return true;
+			}
+		}
+		return false;
+	}
+
+	beforeExitHandler() {
+		for (const runnable of this.activeRunnables) {
+			runnable.finishDueToInactivity();
+		}
+	}
+
+	runMultiple(runnables) {
+		let allPassed = true;
+		const storedResults = [];
+		const runAndStoreResult = runnable => {
+			return this.runSingle(runnable).then(result => {
+				if (!result.passed) {
+					allPassed = false;
+				}
+				storedResults.push(result);
+			});
+		};
+
+		let waitForSerial = Promise.resolve();
+		return runnables.reduce((prev, runnable) => {
+			if (runnable.metadata.serial || this.serial) {
+				waitForSerial = prev.then(() => {
+					// Serial runnables run as long as there was no previous failure, unless
+					// the runnable should always be run.
+					return (allPassed || runnable.metadata.always) && runAndStoreResult(runnable);
+				});
+				return waitForSerial;
+			}
+
+			return Promise.all([
+				prev,
+				waitForSerial.then(() => {
+					// Concurrent runnables are kicked off after the previous serial
+					// runnables have completed, as long as there was no previous failure
+					// (or if the runnable should always be run). One concurrent runnable's
+					// failure does not prevent the next runnable from running.
+					return (allPassed || runnable.metadata.always) && runAndStoreResult(runnable);
+				})
+			]);
+		}, waitForSerial).then(() => ({allPassed, storedResults}));
+	}
+
+	runSingle(runnable) {
+		this.onRun(runnable);
+		return runnable.run().then(result => {
+			// If run() throws or rejects then the entire test run crashes, so
+			// onRunComplete() doesn't *have* to be inside a finally().
+			this.onRunComplete(runnable);
+			return result;
+		});
+	}
+
+	runHooks(tasks, contextRef, titleSuffix) {
+		const hooks = tasks.map(task => new Runnable({
+			contextRef,
+			failWithoutAssertions: false,
+			fn: task.args.length === 0 ?
+				task.implementation :
+				t => task.implementation.apply(null, [t].concat(task.args)),
+			compareTestSnapshot: this.boundCompareTestSnapshot,
+			updateSnapshots: this.updateSnapshots,
+			metadata: task.metadata,
+			title: `${task.title}${titleSuffix || ''}`
+		}));
+		return this.runMultiple(hooks, this.serial).then(outcome => {
+			if (outcome.allPassed) {
+				return true;
+			}
+
+			// Only emit results for failed hooks.
+			for (const result of outcome.storedResults) {
+				if (!result.passed) {
+					this.stats.failedHookCount++;
+					this.emit('hook-failed', result);
+				}
+			}
+			return false;
+		});
+	}
+
+	runTest(task, contextRef) {
+		const hookSuffix = ` for ${task.title}`;
+		return this.runHooks(this.tasks.beforeEach, contextRef, hookSuffix).then(hooksOk => {
+			// Don't run the test if a `beforeEach` hook failed.
+			if (!hooksOk) {
+				return false;
+			}
+
+			const test = new Runnable({
+				contextRef,
+				failWithoutAssertions: this.failWithoutAssertions,
+				fn: task.args.length === 0 ?
+					task.implementation :
+					t => task.implementation.apply(null, [t].concat(task.args)),
+				compareTestSnapshot: this.boundCompareTestSnapshot,
+				updateSnapshots: this.updateSnapshots,
+				metadata: task.metadata,
+				title: task.title
+			});
+			return this.runSingle(test).then(result => {
+				if (!result.passed) {
+					this.stats.failCount++;
+					this.emit('test', result);
+					// Don't run `afterEach` hooks if the test failed.
+					return false;
+				}
+
+				if (result.metadata.failing) {
+					this.stats.knownFailureCount++;
+				} else {
+					this.stats.passCount++;
+				}
+				this.emit('test', result);
+				return this.runHooks(this.tasks.afterEach, contextRef, hookSuffix);
+			});
+		}).then(hooksAndTestOk => {
+			return this.runHooks(this.tasks.afterEachAlways, contextRef, hookSuffix).then(alwaysOk => {
+				return hooksAndTestOk && alwaysOk;
+			});
+		});
+	}
+
+	start() {
+		const runOnlyExclusive = this.stats.hasExclusive || this.runOnlyExclusive;
+
+		const todoTitles = [];
+		for (const task of this.tasks.todo) {
+			if (runOnlyExclusive && !task.metadata.exclusive) {
+				continue;
+			}
+
+			this.stats.testCount++;
+			this.stats.todoCount++;
+			todoTitles.push(task.title);
+		}
+
+		const concurrentTests = [];
+		const serialTests = [];
+		const skippedTests = [];
+		for (const task of this.tasks.serial) {
+			if (runOnlyExclusive && !task.metadata.exclusive) {
+				continue;
+			}
+
+			this.stats.testCount++;
+			if (task.metadata.skipped) {
+				this.stats.skipCount++;
+				skippedTests.push({
+					failing: task.metadata.failing,
+					title: task.title
+				});
+			} else {
+				serialTests.push(task);
+			}
+		}
+		for (const task of this.tasks.concurrent) {
+			if (runOnlyExclusive && !task.metadata.exclusive) {
+				continue;
+			}
+
+			this.stats.testCount++;
+			if (task.metadata.skipped) {
+				this.stats.skipCount++;
+				skippedTests.push({
+					failing: task.metadata.failing,
+					title: task.title
+				});
+			} else if (this.serial) {
+				serialTests.push(task);
+			} else {
+				concurrentTests.push(task);
+			}
+		}
+
+		if (concurrentTests.length === 0 && serialTests.length === 0) {
+			this.emit('start', {
+				// `ended` is always resolved with `undefined`.
+				ended: Promise.resolve(undefined),
+				skippedTests,
+				stats: this.stats,
+				todoTitles
+			});
+			// Don't run any hooks if there are no tests to run.
+			return;
+		}
+
+		const contextRef = new ContextRef();
+
+		// Note that the hooks and tests always begin running asynchronously.
+		const beforePromise = this.runHooks(this.tasks.before, contextRef);
+		const serialPromise = beforePromise.then(beforeHooksOk => {
+			// Don't run tests if a `before` hook failed.
+			if (!beforeHooksOk) {
+				return false;
+			}
+
+			return serialTests.reduce((prev, task) => {
+				return prev.then(prevOk => {
+					// Don't start tests after an interrupt.
+					if (this.interrupted) {
+						return prevOk;
+					}
+
+					// Prevent subsequent tests from running if `failFast` is enabled and
+					// the previous test failed.
+					if (!prevOk && this.failFast) {
+						return false;
+					}
+
+					return this.runTest(task, contextRef.copy());
+				});
+			}, Promise.resolve(true));
+		});
+		const concurrentPromise = Promise.all([beforePromise, serialPromise]).then(prevOkays => {
+			const beforeHooksOk = prevOkays[0];
+			const serialOk = prevOkays[1];
+			// Don't run tests if a `before` hook failed, or if `failFast` is enabled
+			// and a previous serial test failed.
+			if (!beforeHooksOk || (!serialOk && this.failFast)) {
+				return false;
+			}
+
+			// Don't start tests after an interrupt.
+			if (this.interrupted) {
+				return true;
+			}
+
+			// If a concurrent test fails, even if `failFast` is enabled it won't
+			// stop other concurrent tests from running.
+			return Promise.all(concurrentTests.map(task => {
+				return this.runTest(task, contextRef.copy());
+			})).then(allOkays => allOkays.every(ok => ok));
+		});
+
+		const beforeExitHandler = this.beforeExitHandler.bind(this);
+		process.on('beforeExit', beforeExitHandler);
+
+		const ended = concurrentPromise
+			// Only run `after` hooks if all hooks and tests passed.
+			.then(ok => ok && this.runHooks(this.tasks.after, contextRef))
+			// Always run `after.always` hooks.
+			.then(() => this.runHooks(this.tasks.afterAlways, contextRef))
+			.then(() => {
+				process.removeListener('beforeExit', beforeExitHandler);
+				// `ended` is always resolved with `undefined`.
+				return undefined;
+			});
+
+		this.emit('start', {
+			ended,
+			skippedTests,
+			stats: this.stats,
+			todoTitles
+		});
+	}
+
+	interrupt() {
+		this.interrupted = true;
+	}
+}
+
+module.exports = Runner;
+
+```
+
+
+</details>
+
+---
 
 
 
