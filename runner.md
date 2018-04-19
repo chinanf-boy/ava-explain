@@ -27,6 +27,8 @@ const runner = new Runner({
 
 `ava/lib/runner.js`
 
+代码 10-160
+
 <details>
 
 ``` js
@@ -75,6 +77,14 @@ class Runner extends EventEmitter {
 		const uniqueTestTitles = new Set();
 		let hasStarted = false;
 		let scheduledStart = false;
+
+```
+
+- [createChain](#2-createchain)
+
+> 创建接口api-函数塔, 并统计用户定义测试类型
+
+``` js
 		this.chain = createChain((metadata, args) => {
 			// 用户输出的 test("title", t =>{})
 			// 去到 args 中 ["title", t =>{}]
@@ -300,11 +310,233 @@ function createChain(fn, defaults) {
 
 ---
 
-### 3. 测试
+### 3. 测试-start
 
-代码 167-473
+代码 331-473
 
 <details>
+
+
+``` js
+// runner 上面初始化
+				process.nextTick(() => {
+					hasStarted = true;
+					this.start(); // <==== 在从测试文件中拿到所有测试定义后, 下一个事件循环 运行开始
+				});
+```
+
+``` js
+	start() {
+		const runOnlyExclusive = this.stats.hasExclusive || this.runOnlyExclusive; 
+		// 匹配选项开启, 或者 只 only 运行
+
+		const todoTitles = [];
+		for (const task of this.tasks.todo) {
+			if (runOnlyExclusive && !task.metadata.exclusive) {
+				continue;
+			}
+
+			this.stats.testCount++; // 总测试
+			this.stats.todoCount++; // 只显示标题字段
+			todoTitles.push(task.title);
+		}
+
+		const concurrentTests = [];
+		const serialTests = [];
+		const skippedTests = [];
+		for (const task of this.tasks.serial) { // 串行测试
+			if (runOnlyExclusive && !task.metadata.exclusive) {
+				continue;
+			}
+
+			this.stats.testCount++;
+			if (task.metadata.skipped) {
+				this.stats.skipCount++;
+				skippedTests.push({
+					failing: task.metadata.failing,
+					title: task.title
+				});
+			} else {
+				serialTests.push(task);
+			}
+		}
+		for (const task of this.tasks.concurrent) { // 并发
+			if (runOnlyExclusive && !task.metadata.exclusive) {
+				continue;
+			}
+
+			this.stats.testCount++; 
+			if (task.metadata.skipped) {
+				this.stats.skipCount++;
+				skippedTests.push({
+					failing: task.metadata.failing,
+					title: task.title
+				});
+			} else if (this.serial) {
+				serialTests.push(task);
+			} else {
+				concurrentTests.push(task);
+			}
+		}
+
+		if (concurrentTests.length === 0 && serialTests.length === 0) {
+			this.emit('start', {
+				// `ended` is always resolved with `undefined`.
+				//`ended`总是用`undefined`解决。
+				ended: Promise.resolve(undefined),
+				skippedTests,
+				stats: this.stats,
+				todoTitles
+			});
+			// Don't run any hooks if there are no tests to run.
+			//如果没有测试运行，则不要运行任何钩子。
+			return;
+
+		}
+
+		const contextRef = new ContextRef();
+
+```
+
+- [ContextRef](#contextref)
+
+> 作为 钩子 的 一个存储中心
+
+### before-hooks
+
+``` js
+		// Note that the hooks and tests always begin running asynchronously.
+		//请注意，钩子和测试总是异步开始运行。
+		const beforePromise = this.runHooks(this.tasks.before, contextRef); // before 钩子存储
+
+```
+
+- [runHooks](#runhooks)
+
+> 
+
+### serial-test
+
+``` js
+		const serialPromise = beforePromise.then(beforeHooksOk => {
+			// Don't run tests if a `before` hook failed.
+			// 如果`before`挂钩失败，则不要运行测试。
+			if (!beforeHooksOk) {
+				return false;
+			}
+
+			return serialTests.reduce((prev, task) => {
+				return prev.then(prevOk => { 
+					// Don't start tests after an interrupt.
+					//中断后不要开始测试。
+					if (this.interrupted) {
+						return prevOk;
+					}
+
+					// Prevent subsequent tests from running if `failFast` is enabled and
+					// the previous test failed.
+//如果启用failFast，则阻止后续测试运行
+//之前的测试失败。
+					if (!prevOk && this.failFast) {
+						return false;
+					}
+
+					return this.runTest(task, contextRef.copy());
+				});
+			}, Promise.resolve(true));
+		}); // 因为是串行-测试, 所以是 Promise.then.then.... 逐个测试
+
+```
+
+### concurrent-test
+
+``` js
+		const concurrentPromise = Promise.all([beforePromise, serialPromise]).then(prevOkays => {
+			const beforeHooksOk = prevOkays[0];
+			const serialOk = prevOkays[1];
+			// Don't run tests if a `before` hook failed, or if `failFast` is enabled
+			// and a previous serial test failed.
+//如果'before`挂钩失败，或者'failFast`已启用，则不要运行测试
+//以前的串行测试失败。
+			if (!beforeHooksOk || (!serialOk && this.failFast)) {
+				return false;
+			}
+
+			// Don't start tests after an interrupt.
+			//中断后不要开始测试。
+			if (this.interrupted) {
+				return true;
+			}
+
+			// If a concurrent test fails, even if `failFast` is enabled it won't
+			// stop other concurrent tests from running.
+//如果一个并发测试失败，即使启用了failFast，它也不会停止运行其他并发测试。
+			return Promise.all(concurrentTests.map(task => {
+				return this.runTest(task, contextRef.copy());
+			})).then(allOkays => allOkays.every(ok => ok));
+		});
+
+		const beforeExitHandler = this.beforeExitHandler.bind(this);
+		process.on('beforeExit', beforeExitHandler); // 子进程退出前
+
+```
+
+### after-hooks
+
+``` js
+		const ended = concurrentPromise
+			// Only run `after` hooks if all hooks and tests passed.
+			//如果所有钩子和测试都通过了，那么只能在`hook'后面运行。
+			.then(ok => ok && this.runHooks(this.tasks.after, contextRef))
+			// Always run `after.always` hooks.
+			//总是运行`after.always`钩子。
+			.then(() => this.runHooks(this.tasks.afterAlways, contextRef))
+			.then(() => {
+				// 完整 运行完后 - 
+				process.removeListener('beforeExit', beforeExitHandler);
+				// `ended` is always resolved with `undefined`.
+				//`ended`总是用`undefined`解决。
+				return undefined;
+			});
+
+		this.emit('start', { // 向 父进程 传递
+			ended,
+			skippedTests,
+			stats: this.stats,
+			todoTitles
+		});
+	}
+
+```
+
+### failFast-test
+
+``` js
+// failFast 选项 的 中断值
+	interrupt() {
+		this.interrupted = true;
+	}
+}
+
+```
+
+
+
+
+</details>
+
+
+### 4. 测试-过程-函数
+
+代码 162-329
+
+> 也是 Test 类 内部函数接口
+
+<details>
+
+### compareTestSnapshot
+
+> 对比快照
 
 ``` js
 // Runner 的 函数
@@ -325,6 +557,13 @@ function createChain(fn, defaults) {
 		return this.snapshots.compare(options);
 	}
 
+```
+
+### saveSnapshotState
+
+> 保存快照
+
+``` js
 	saveSnapshotState() {
 		if (this.snapshots) {
 			const files = this.snapshots.save();
@@ -335,17 +574,47 @@ function createChain(fn, defaults) {
 			// TODO: There may be unused snapshot files if no test caused the
 			// snapshots to be loaded. Prune them. But not if tests (including hooks!)
 			// were skipped. Perhaps emit a warning if this occurs?
+// TODO：如果没有测试导致，可能会有未使用的快照文件
+//快照被加载。 修剪它们。 但如果测试（包括钩子！）则不行
+//被跳过。 如果发生这种情况可能会发出警告？
 		}
 	}
+```
 
+### onRun
+
+> 保存-Test 类
+
+``` js
 	onRun(runnable) {
 		this.activeRunnables.add(runnable);
 	}
+```
 
+### onRunComplete
+
+> 移除-Test 类
+
+``` js
 	onRunComplete(runnable) {
 		this.activeRunnables.delete(runnable);
 	}
+```
 
+### attributeLeakedError
+
+> 错误 提交, 这个函数会一直往上提
+
+``` js
+// test-worker.js 知道提交给父进程
+process.on('unhandledRejection', (reason, promise) => {
+	if (attributeLeakedError(reason)) {
+		attributedRejections.add(promise);
+	}
+});
+```
+
+``` js
 	attributeLeakedError(err) {
 		for (const runnable of this.activeRunnables) {
 			if (runnable.attributeLeakedError(err)) {
@@ -355,12 +624,26 @@ function createChain(fn, defaults) {
 		return false;
 	}
 
+```
+
+### beforeExitHandler
+
+> 退出前, 把剩下的清理
+
+``` js
 	beforeExitHandler() {
 		for (const runnable of this.activeRunnables) {
 			runnable.finishDueToInactivity();
 		}
 	}
 
+```
+
+###  runMultiple
+
+> 测试多个
+
+``` js
 	runMultiple(runnables) {
 		let allPassed = true;
 		const storedResults = [];
@@ -396,17 +679,46 @@ function createChain(fn, defaults) {
 			]);
 		}, waitForSerial).then(() => ({allPassed, storedResults}));
 	}
+```
 
+### runSingle
+
+> 测试单个
+
+``` js
 	runSingle(runnable) {
 		this.onRun(runnable);
 		return runnable.run().then(result => {
 			// If run() throws or rejects then the entire test run crashes, so
 			// onRunComplete() doesn't *have* to be inside a finally().
+//如果run（）抛出或拒绝，那么整个测试运行崩溃，所以
+// onRunComplete（）不*具有*在finally（）中。
 			this.onRunComplete(runnable);
 			return result;
 		});
 	}
 
+```
+
+- [onRun](#onrun)
+
+> 保存-Test 类
+
+- [runnable.run](./test.md#run)
+
+> 测试运行
+
+- [onRunComplete](#onruncomplete)
+
+> 移除-Test 类
+
+---
+
+### runHooks
+
+> 对每个钩子函数生成 Test 类, 测试多个
+
+``` js
 	runHooks(tasks, contextRef, titleSuffix) {
 		const hooks = tasks.map(task => new Runnable({
 			contextRef,
@@ -435,6 +747,27 @@ function createChain(fn, defaults) {
 		});
 	}
 
+```
+
+``` js
+const Runnable = require('./test');
+```
+
+- [`Runnable -=- class Test`](./test.md)
+
+> test.js
+
+- [runMultiple](#runmultiple)
+
+> 
+
+---
+
+### runTest
+
+> 对每个测试, 运行, 但增加标题
+
+``` js
 	runTest(task, contextRef) {
 		const hookSuffix = ` for ${task.title}`;
 		return this.runHooks(this.tasks.beforeEach, contextRef, hookSuffix).then(hooksOk => {
@@ -476,148 +809,6 @@ function createChain(fn, defaults) {
 			});
 		});
 	}
-
-	start() {
-		const runOnlyExclusive = this.stats.hasExclusive || this.runOnlyExclusive;
-
-		const todoTitles = [];
-		for (const task of this.tasks.todo) {
-			if (runOnlyExclusive && !task.metadata.exclusive) {
-				continue;
-			}
-
-			this.stats.testCount++;
-			this.stats.todoCount++;
-			todoTitles.push(task.title);
-		}
-
-		const concurrentTests = [];
-		const serialTests = [];
-		const skippedTests = [];
-		for (const task of this.tasks.serial) {
-			if (runOnlyExclusive && !task.metadata.exclusive) {
-				continue;
-			}
-
-			this.stats.testCount++;
-			if (task.metadata.skipped) {
-				this.stats.skipCount++;
-				skippedTests.push({
-					failing: task.metadata.failing,
-					title: task.title
-				});
-			} else {
-				serialTests.push(task);
-			}
-		}
-		for (const task of this.tasks.concurrent) {
-			if (runOnlyExclusive && !task.metadata.exclusive) {
-				continue;
-			}
-
-			this.stats.testCount++;
-			if (task.metadata.skipped) {
-				this.stats.skipCount++;
-				skippedTests.push({
-					failing: task.metadata.failing,
-					title: task.title
-				});
-			} else if (this.serial) {
-				serialTests.push(task);
-			} else {
-				concurrentTests.push(task);
-			}
-		}
-
-		if (concurrentTests.length === 0 && serialTests.length === 0) {
-			this.emit('start', {
-				// `ended` is always resolved with `undefined`.
-				ended: Promise.resolve(undefined),
-				skippedTests,
-				stats: this.stats,
-				todoTitles
-			});
-			// Don't run any hooks if there are no tests to run.
-			return;
-		}
-
-		const contextRef = new ContextRef();
-
-		// Note that the hooks and tests always begin running asynchronously.
-		const beforePromise = this.runHooks(this.tasks.before, contextRef);
-		const serialPromise = beforePromise.then(beforeHooksOk => {
-			// Don't run tests if a `before` hook failed.
-			if (!beforeHooksOk) {
-				return false;
-			}
-
-			return serialTests.reduce((prev, task) => {
-				return prev.then(prevOk => {
-					// Don't start tests after an interrupt.
-					if (this.interrupted) {
-						return prevOk;
-					}
-
-					// Prevent subsequent tests from running if `failFast` is enabled and
-					// the previous test failed.
-					if (!prevOk && this.failFast) {
-						return false;
-					}
-
-					return this.runTest(task, contextRef.copy());
-				});
-			}, Promise.resolve(true));
-		});
-		const concurrentPromise = Promise.all([beforePromise, serialPromise]).then(prevOkays => {
-			const beforeHooksOk = prevOkays[0];
-			const serialOk = prevOkays[1];
-			// Don't run tests if a `before` hook failed, or if `failFast` is enabled
-			// and a previous serial test failed.
-			if (!beforeHooksOk || (!serialOk && this.failFast)) {
-				return false;
-			}
-
-			// Don't start tests after an interrupt.
-			if (this.interrupted) {
-				return true;
-			}
-
-			// If a concurrent test fails, even if `failFast` is enabled it won't
-			// stop other concurrent tests from running.
-			return Promise.all(concurrentTests.map(task => {
-				return this.runTest(task, contextRef.copy());
-			})).then(allOkays => allOkays.every(ok => ok));
-		});
-
-		const beforeExitHandler = this.beforeExitHandler.bind(this);
-		process.on('beforeExit', beforeExitHandler);
-
-		const ended = concurrentPromise
-			// Only run `after` hooks if all hooks and tests passed.
-			.then(ok => ok && this.runHooks(this.tasks.after, contextRef))
-			// Always run `after.always` hooks.
-			.then(() => this.runHooks(this.tasks.afterAlways, contextRef))
-			.then(() => {
-				process.removeListener('beforeExit', beforeExitHandler);
-				// `ended` is always resolved with `undefined`.
-				return undefined;
-			});
-
-		this.emit('start', {
-			ended,
-			skippedTests,
-			stats: this.stats,
-			todoTitles
-		});
-	}
-
-	interrupt() {
-		this.interrupted = true;
-	}
-}
-
-module.exports = Runner;
-
 ```
 
 
