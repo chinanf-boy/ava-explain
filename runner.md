@@ -532,6 +532,12 @@ function createChain(fn, defaults) {
 
 > 也是 Test 类 内部函数接口
 
+具体说明一下 本次 `Promise` 层
+
+[runTest](#runTest) -> [runHooks](#runHooks) -> [runMultiple](#runMultiple) -> [runSingle](#runSingle) -> [runnable.run()](./test.md#run)
+
+最后都是为了运行 `runnable.run()`
+
 <details>
 
 ### compareTestSnapshot
@@ -658,10 +664,12 @@ process.on('unhandledRejection', (reason, promise) => {
 
 		let waitForSerial = Promise.resolve();
 		return runnables.reduce((prev, runnable) => {
-			if (runnable.metadata.serial || this.serial) {
+			if (runnable.metadata.serial || this.serial) { // 用户定义串行
 				waitForSerial = prev.then(() => {
 					// Serial runnables run as long as there was no previous failure, unless
 					// the runnable should always be run.
+//只要以前没有失败，串行runnable就会运行
+// runnable应该始终运行。
 					return (allPassed || runnable.metadata.always) && runAndStoreResult(runnable);
 				});
 				return waitForSerial;
@@ -674,6 +682,10 @@ process.on('unhandledRejection', (reason, promise) => {
 					// runnables have completed, as long as there was no previous failure
 					// (or if the runnable should always be run). One concurrent runnable's
 					// failure does not prevent the next runnable from running.
+//并发runnables在前一个序列之后被启动
+//只要以前没有失败，runnables就完成了
+//（或者如果runnable应该始终运行）。 一个并发可运行的
+//失败不会阻止下一次runnable运行。
 					return (allPassed || runnable.metadata.always) && runAndStoreResult(runnable);
 				})
 			]);
